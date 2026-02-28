@@ -1,5 +1,6 @@
 import { getDb } from '@/lib/db';
-import UAParser from 'ua-parser-js';
+import pkg from 'ua-parser-js';
+const UAParser = pkg.default || pkg;
 
 export const config = {
   api: {
