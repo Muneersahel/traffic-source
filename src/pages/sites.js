@@ -150,8 +150,9 @@ export default function Sites() {
         ) : (
           <div className="sites-list">
             {sites.map((site) => {
-              const total24h = site.hourly.reduce((sum, h) => sum + h.views, 0);
-              const maxViews = Math.max(...site.hourly.map((h) => h.views), 1);
+              const totalPageviews = site.hourly.reduce((sum, h) => sum + h.pageviews, 0);
+              const totalVisitors = site.hourly.reduce((sum, h) => sum + h.visitors, 0);
+              const maxVal = Math.max(...site.hourly.map((h) => h.pageviews), 1);
               return (
                 <div
                   key={site.id}
@@ -167,18 +168,28 @@ export default function Sites() {
                       site.hourly.map((h, i) => (
                         <div
                           key={i}
-                          className="site-row-bar"
-                          style={{ height: `${(h.views / maxViews) * 100}%` }}
-                          title={`${h.hour}: ${h.views} views`}
-                        />
+                          className="site-row-bar-group"
+                          title={`${h.hour}\n${h.pageviews} pageviews\n${h.visitors} visitors`}
+                        >
+                          <div
+                            className="site-row-bar site-row-bar--pageviews"
+                            style={{ height: `${(h.pageviews / maxVal) * 100}%` }}
+                          />
+                          <div
+                            className="site-row-bar site-row-bar--visitors"
+                            style={{ height: `${(h.visitors / maxVal) * 100}%` }}
+                          />
+                        </div>
                       ))
                     ) : (
                       <span className="site-row-nodata">No data</span>
                     )}
                   </div>
                   <div className="site-row-stats">
-                    <span className="site-row-count">{total24h}</span>
-                    <span className="site-row-period">last 24h</span>
+                    <span className="site-row-count">{totalPageviews.toLocaleString()}</span>
+                    <span className="site-row-period">pageviews</span>
+                    <span className="site-row-count site-row-count--visitors">{totalVisitors.toLocaleString()}</span>
+                    <span className="site-row-period">visitors</span>
                   </div>
                   <div className="site-row-actions">
                     <button

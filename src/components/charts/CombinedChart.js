@@ -21,6 +21,7 @@ export default function CombinedChart({ trafficData, revenueData }) {
   }
 
   const hasRevenue = merged.some((d) => d.revenue > 0);
+  const hasVisitors = merged.some((d) => d.visitors > 0);
 
   return (
     <div className="chart-container">
@@ -66,7 +67,9 @@ export default function CombinedChart({ trafficData, revenueData }) {
             }}
             formatter={(value, name) => {
               if (name === 'revenue') return [`$${(value / 100).toFixed(2)}`, 'Revenue'];
-              return [value.toLocaleString(), name === 'page_views' ? 'Visitors' : name];
+              if (name === 'page_views') return [value.toLocaleString(), 'Pageviews'];
+              if (name === 'visitors') return [value.toLocaleString(), 'Visitors'];
+              return [value.toLocaleString(), name];
             }}
           />
           {hasRevenue && (
@@ -86,6 +89,15 @@ export default function CombinedChart({ trafficData, revenueData }) {
             radius={[4, 4, 0, 0]}
             barSize={20}
           />
+          {hasVisitors && (
+            <Bar
+              yAxisId="left"
+              dataKey="visitors"
+              fill="#f4c3b8"
+              radius={[4, 4, 0, 0]}
+              barSize={20}
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

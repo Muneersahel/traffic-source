@@ -455,12 +455,23 @@ a { color: var(--text); text-decoration: none; &:hover { opacity: 0.7; } }
     min-width: 0;
   }
 
+  &-bar-group {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: 100%;
+    min-width: 0;
+  }
+
   &-bar {
     flex: 1;
-    min-width: 2px;
-    background: var(--accent);
-    border-radius: 2px 2px 0 0;
+    min-width: 1px;
+    border-radius: 1px 1px 0 0;
     transition: height 0.2s;
+
+    &--pageviews { background: var(--accent); }
+    &--visitors { background: #f4c3b8; }
   }
 
   &-nodata {
@@ -473,13 +484,19 @@ a { color: var(--text); text-decoration: none; &:hover { opacity: 0.7; } }
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    min-width: 60px;
+    min-width: 70px;
     flex-shrink: 0;
   }
 
   &-count {
     font-size: 18px;
     font-weight: 700;
+
+    &--visitors {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
   }
 
   &-period {

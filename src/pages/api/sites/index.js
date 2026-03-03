@@ -14,13 +14,15 @@ export default withAuth(function handler(req, res) {
       )
       .all(req.user.userId);
 
-    // Fetch hourly page views for last 24h per site
+    // Fetch hourly pageviews + visitors for last 24h per site
     const siteIds = sites.map((s) => s.id);
     const hourlyMap = {};
     if (siteIds.length > 0) {
       const rows = db
         .prepare(
-          `SELECT site_id, strftime('%Y-%m-%d %H:00', timestamp) as hour, COUNT(*) as views
+          `SELECT site_id, strftime('%Y-%m-%d %H:00', timestamp) as hour,
+                  COUNT(*) as pageviews,
+                  COUNT(DISTINCT visitor_id) as visitors
            FROM page_views
            WHERE site_id IN (${siteIds.map(() => '?').join(',')})
              AND timestamp >= datetime('now', '-24 hours')
@@ -30,7 +32,7 @@ export default withAuth(function handler(req, res) {
         .all(...siteIds);
       for (const row of rows) {
         if (!hourlyMap[row.site_id]) hourlyMap[row.site_id] = [];
-        hourlyMap[row.site_id].push({ hour: row.hour, views: row.views });
+        hourlyMap[row.site_id].push({ hour: row.hour, pageviews: row.pageviews, visitors: row.visitors });
       }
     }
 

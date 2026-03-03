@@ -67,7 +67,9 @@ export default withAuth(function handler(req, res) {
   if (req.query.period === '24h') {
     timeSeries = db
       .prepare(
-        `SELECT strftime('%Y-%m-%d %H:00', timestamp) as date, COUNT(*) as page_views
+        `SELECT strftime('%Y-%m-%d %H:00', timestamp) as date,
+                COUNT(*) as page_views,
+                COUNT(DISTINCT visitor_id) as visitors
          FROM page_views
          WHERE site_id = ? AND timestamp >= datetime('now', '-24 hours')
          GROUP BY date ORDER BY date ASC`
