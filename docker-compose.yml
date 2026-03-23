@@ -14,6 +14,21 @@ services:
       DATABASE_PATH: /app/data/analytics.db
     expose:
       - "3000"
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "${TRAEFIK_NETWORK:-traefik}"
+      traefik.http.routers.traffic-source.rule: "Host(`traffic.muneersahel.com`)"
+      traefik.http.routers.traffic-source.entrypoints: "websecure"
+      traefik.http.routers.traffic-source.tls: "true"
+      traefik.http.routers.traffic-source.tls.certresolver: "${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      traefik.http.services.traffic-source.loadbalancer.server.port: "3000"
+      traefik.http.routers.traffic-source-http.rule: "Host(`traffic.muneersahel.com`)"
+      traefik.http.routers.traffic-source-http.entrypoints: "web"
+      traefik.http.routers.traffic-source-http.middlewares: "traffic-source-https"
+      traefik.http.middlewares.traffic-source-https.redirectscheme.scheme: "https"
+    networks:
+      - default
+      - traefik
     volumes:
       - traffic_source_data:/app/data
     healthcheck:
@@ -26,53 +41,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-
-  nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
-    image: traffic-source-nginx:latest
-    restart: unless-stopped
-    depends_on:
-      app:
-        condition: service_healthy
-    env_file:
-      - ./.env.production
-    environment:
-      DOMAIN: traffic.muneersahel.com
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - letsencrypt:/etc/letsencrypt
-      - certbot_webroot:/var/www/certbot
-      - nginx_certs:/etc/nginx/certs
-    healthcheck:
-      test: ["CMD-SHELL", "nginx -t || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  certbot:
-    image: certbot/certbot:latest
-    restart: unless-stopped
-    depends_on:
-      nginx:
-        condition: service_started
-    env_file:
-      - ./.env.production
-    environment:
-      DOMAIN: traffic.muneersahel.com
-      CERTBOT_WEBROOT: /var/www/certbot
-    pid: "service:nginx"
-    entrypoint: ["/bin/sh", "/usr/local/bin/certbot-renew.sh"]
-    volumes:
-      - letsencrypt:/etc/letsencrypt
-      - certbot_webroot:/var/www/certbot
-      - nginx_certs:/etc/nginx/certs
-      - ./scripts/certbot-renew.sh:/usr/local/bin/certbot-renew.sh:ro
 
   cron:
     image: traffic-source:latest
@@ -87,10 +55,29 @@ services:
       CRON_TARGET_URL: http://app:3000
       CRON_INTERVAL_SECONDS: 60
       DAILY_AGGREGATE_HOUR_UTC: 0
-    command: ["./run-service.sh", "cron"]
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        LAST_AGGREGATE_DATE=""
+        TARGET_HOUR_UTC="$(printf '%02d' "$${DAILY_AGGREGATE_HOUR_UTC:-0}")"
+        while true; do
+          HOUR_UTC="$(date -u +%H)"
+          DATE_UTC="$(date -u +%F)"
+          if [ "$${HOUR_UTC}" = "$${TARGET_HOUR_UTC}" ] && [ "$${LAST_AGGREGATE_DATE}" != "$${DATE_UTC}" ]; then
+            echo "[$$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Triggering daily aggregation"
+            curl -fsS -X POST -H "x-cron-secret: $${CRON_SECRET:-}" "$${CRON_TARGET_URL}/api/cron/aggregate" >/dev/null
+            LAST_AGGREGATE_DATE="$${DATE_UTC}"
+          fi
+          echo "[$$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Triggering Stripe sync"
+          curl -fsS -X POST -H "x-cron-secret: $${CRON_SECRET:-}" "$${CRON_TARGET_URL}/api/cron/stripe-sync" >/dev/null
+          sleep "$${CRON_INTERVAL_SECONDS:-60}"
+        done
 
 volumes:
   traffic_source_data:
-  letsencrypt:
-  certbot_webroot:
-  nginx_certs:
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}

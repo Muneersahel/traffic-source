@@ -27,11 +27,9 @@ RUN apt-get update \
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/run-service.sh ./run-service.sh
 
-RUN mkdir -p /app/data \
-  && chmod +x /app/run-service.sh
+RUN mkdir -p /app/data
 
 EXPOSE 3000
 
-CMD ["./run-service.sh", "web"]
+CMD ["node", "server.js"]

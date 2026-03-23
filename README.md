@@ -122,7 +122,7 @@ npm run deploy
 
 ### Docker Compose deployment
 
-You can also deploy Traffic Source as containers with a shared SQLite volume, an Nginx reverse proxy with HTTPS, Certbot certificate automation, and an internal cron worker for Stripe sync + daily aggregation.
+You can also deploy Traffic Source as containers with a shared SQLite volume, an internal cron worker, and Traefik labels for an existing Traefik instance running on your server.
 
 1. Make sure `.env.production` contains at least:
 
@@ -132,88 +132,51 @@ JWT_EXPIRY=7d
 NEXT_PUBLIC_APP_URL=https://traffic.muneersahel.com
 DATABASE_PATH=/app/data/analytics.db
 CRON_SECRET=your-random-cron-secret
-LETSENCRYPT_EMAIL=you@example.com
-CERTBOT_STAGING=0
+TRAEFIK_NETWORK=traefik
+TRAEFIK_CERTRESOLVER=letsencrypt
 ```
+
+1. Make sure your existing Traefik service is attached to the Docker network in `TRAEFIK_NETWORK` and has a certificate resolver matching `TRAEFIK_CERTRESOLVER`.
 
 1. Build and start the stack:
 
 ```bash
-docker compose up -d --build
+./run-service.sh up
 ```
 
 1. The stack includes:
 
 - `app` — serves the Next.js production app on the internal Docker network
-- `nginx` — accepts HTTP/HTTPS traffic for `traffic.muneersahel.com`, redirects HTTP to HTTPS, and proxies to `app`
-- `certbot` — obtains and renews the Let's Encrypt certificate for `traffic.muneersahel.com`
+- `app` — advertises itself to Traefik through Docker labels for `traffic.muneersahel.com`
 - `cron` — calls the internal cron endpoints every 60 seconds and runs daily aggregation once per UTC day
 
 1. To stop it:
 
 ```bash
-docker compose down
+./run-service.sh down
 ```
 
 The SQLite database is stored in the named Docker volume `traffic_source_data`.
 
-Point the DNS record for `traffic.muneersahel.com` at your server. The stack listens on ports `80` and `443`.
+Point the DNS record for `traffic.muneersahel.com` at your server and make sure your Traefik instance is the service binding ports `80` and `443`.
 
-For the initial certificate issuance:
+### Traefik routing labels
 
-- set `LETSENCRYPT_EMAIL` to a real email address
-- keep port `80` reachable from the public internet
-- if Cloudflare proxying interferes with HTTP validation, temporarily switch the DNS record to **DNS only** until the first certificate is issued
+The `app` service includes labels equivalent to:
 
-After the first certificate is in place, you can re-enable the Cloudflare proxy and use **Full (Strict)** mode.
-
-### Nginx reverse proxy
-
-```nginx
-resolver 127.0.0.11 ipv6=off;
-
-map $http_upgrade $connection_upgrade {
-  default upgrade;
-  '' close;
-}
-
-server {
-    listen 80;
-  server_name traffic.muneersahel.com;
-
-  location /.well-known/acme-challenge/ {
-    root /var/www/certbot;
-  }
-
-    location / {
-    return 301 https://$host$request_uri;
-  }
-}
-
-server {
-  listen 443 ssl;
-  http2 on;
-  server_name traffic.muneersahel.com;
-
-  ssl_certificate /etc/nginx/certs/current/fullchain.pem;
-  ssl_certificate_key /etc/nginx/certs/current/privkey.pem;
-
-  location / {
-    set $upstream http://app:3000;
-    proxy_pass $upstream;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection $connection_upgrade;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_cache_bypass $http_upgrade;
-    }
-}
+```yaml
+traefik.enable: "true"
+traefik.docker.network: "traefik"
+traefik.http.routers.traffic-source.rule: "Host(`traffic.muneersahel.com`)"
+traefik.http.routers.traffic-source.entrypoints: "websecure"
+traefik.http.routers.traffic-source.tls: "true"
+traefik.http.routers.traffic-source.tls.certresolver: "letsencrypt"
+traefik.http.services.traffic-source.loadbalancer.server.port: "3000"
+traefik.http.routers.traffic-source-http.rule: "Host(`traffic.muneersahel.com`)"
+traefik.http.routers.traffic-source-http.entrypoints: "web"
+traefik.http.routers.traffic-source-http.middlewares: "traffic-source-https"
+traefik.http.middlewares.traffic-source-https.redirectscheme.scheme: "https"
 ```
-
-The Nginx container starts with a temporary self-signed certificate if Let's Encrypt hasn't issued the real one yet, then Certbot replaces it and reloads Nginx automatically.
 
 Since Cloudflare handles SSL, you can use Cloudflare's Origin CA certificate or Full (Strict) mode.
 

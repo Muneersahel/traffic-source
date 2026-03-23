@@ -2,53 +2,44 @@
 
 set -eu
 
-ROLE="${1:-web}"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${ENV_FILE:-$PROJECT_DIR/.env.production}"
+ACTION="${1:-up}"
 
-log() {
-  printf '%s %s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')]" "$*"
-}
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
 
-run_cron() {
-  : "${CRON_TARGET_URL:=http://app:3000}"
-  : "${CRON_INTERVAL_SECONDS:=60}"
-  : "${DAILY_AGGREGATE_HOUR_UTC:=0}"
-  TARGET_HOUR_UTC="$(printf '%02d' "$DAILY_AGGREGATE_HOUR_UTC")"
+cd "$PROJECT_DIR"
 
-  LAST_AGGREGATE_DATE=""
-
-  while true; do
-    HOUR_UTC="$(date -u +%H)"
-    DATE_UTC="$(date -u +%F)"
-
-    if [ "$HOUR_UTC" = "$TARGET_HOUR_UTC" ] && [ "$LAST_AGGREGATE_DATE" != "$DATE_UTC" ]; then
-      log "Triggering daily aggregation"
-      curl -fsS -X POST \
-        -H "x-cron-secret: ${CRON_SECRET:-}" \
-        "$CRON_TARGET_URL/api/cron/aggregate" >/dev/null
-      LAST_AGGREGATE_DATE="$DATE_UTC"
-    fi
-
-    log "Triggering Stripe sync"
-    curl -fsS -X POST \
-      -H "x-cron-secret: ${CRON_SECRET:-}" \
-      "$CRON_TARGET_URL/api/cron/stripe-sync" >/dev/null
-
-    sleep "$CRON_INTERVAL_SECONDS"
-  done
-}
-
-case "$ROLE" in
-  web)
-    mkdir -p "$(dirname "${DATABASE_PATH:-/app/data/analytics.db}")"
-    log "Starting production web service"
-    exec node server.js
+case "$ACTION" in
+  up)
+    docker compose up -d --build
     ;;
-  cron)
-    log "Starting cron worker"
-    run_cron
+  down)
+    docker compose down
+    ;;
+  restart)
+    docker compose up -d --build --force-recreate
+    ;;
+  logs)
+    shift || true
+    docker compose logs -f "$@"
+    ;;
+  ps)
+    docker compose ps
+    ;;
+  pull)
+    docker compose pull
+    ;;
+  build)
+    docker compose build
     ;;
   *)
-    log "Unknown role: $ROLE"
+    echo "Usage: ./run-service.sh {up|down|restart|logs|ps|pull|build}"
     exit 1
     ;;
 esac
