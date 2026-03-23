@@ -1,0 +1,13 @@
+.git
+.github
+.next
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+data/*.db
+data/*.db-shm
+data/*.db-wal
+Dockerfile*
+docker-compose*.yml
+README.md

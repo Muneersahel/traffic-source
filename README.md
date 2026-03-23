@@ -120,26 +120,100 @@ The included deploy script pulls latest changes, builds in a temp directory, swa
 npm run deploy
 ```
 
+### Docker Compose deployment
+
+You can also deploy Traffic Source as containers with a shared SQLite volume, an Nginx reverse proxy with HTTPS, Certbot certificate automation, and an internal cron worker for Stripe sync + daily aggregation.
+
+1. Make sure `.env.production` contains at least:
+
+```env
+JWT_SECRET=your-random-64-char-hex-string
+JWT_EXPIRY=7d
+NEXT_PUBLIC_APP_URL=https://traffic.muneersahel.com
+DATABASE_PATH=/app/data/analytics.db
+CRON_SECRET=your-random-cron-secret
+LETSENCRYPT_EMAIL=you@example.com
+CERTBOT_STAGING=0
+```
+
+1. Build and start the stack:
+
+```bash
+docker compose up -d --build
+```
+
+1. The stack includes:
+
+- `app` — serves the Next.js production app on the internal Docker network
+- `nginx` — accepts HTTP/HTTPS traffic for `traffic.muneersahel.com`, redirects HTTP to HTTPS, and proxies to `app`
+- `certbot` — obtains and renews the Let's Encrypt certificate for `traffic.muneersahel.com`
+- `cron` — calls the internal cron endpoints every 60 seconds and runs daily aggregation once per UTC day
+
+1. To stop it:
+
+```bash
+docker compose down
+```
+
+The SQLite database is stored in the named Docker volume `traffic_source_data`.
+
+Point the DNS record for `traffic.muneersahel.com` at your server. The stack listens on ports `80` and `443`.
+
+For the initial certificate issuance:
+
+- set `LETSENCRYPT_EMAIL` to a real email address
+- keep port `80` reachable from the public internet
+- if Cloudflare proxying interferes with HTTP validation, temporarily switch the DNS record to **DNS only** until the first certificate is issued
+
+After the first certificate is in place, you can re-enable the Cloudflare proxy and use **Full (Strict)** mode.
+
 ### Nginx reverse proxy
 
 ```nginx
+resolver 127.0.0.11 ipv6=off;
+
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  '' close;
+}
+
 server {
     listen 80;
-    server_name your-domain.com;
+  server_name traffic.muneersahel.com;
+
+  location /.well-known/acme-challenge/ {
+    root /var/www/certbot;
+  }
 
     location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+    return 301 https://$host$request_uri;
+  }
+}
+
+server {
+  listen 443 ssl;
+  http2 on;
+  server_name traffic.muneersahel.com;
+
+  ssl_certificate /etc/nginx/certs/current/fullchain.pem;
+  ssl_certificate_key /etc/nginx/certs/current/privkey.pem;
+
+  location / {
+    set $upstream http://app:3000;
+    proxy_pass $upstream;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_cache_bypass $http_upgrade;
     }
 }
 ```
+
+The Nginx container starts with a temporary self-signed certificate if Let's Encrypt hasn't issued the real one yet, then Certbot replaces it and reloads Nginx automatically.
 
 Since Cloudflare handles SSL, you can use Cloudflare's Origin CA certificate or Full (Strict) mode.
 
@@ -148,10 +222,15 @@ Since Cloudflare handles SSL, you can use Cloudflare's Origin CA certificate or 
 After creating a site in the dashboard, add this to your website's `<head>`:
 
 ```html
-<script defer src="https://your-domain.com/t.js" data-site="YOUR_SITE_ID"></script>
+<script
+  defer
+  src="https://your-domain.com/t.js"
+  data-site="YOUR_SITE_ID"
+></script>
 ```
 
 That's it. The script automatically tracks:
+
 - Pageviews (including SPA navigation)
 - Referrers and UTM parameters
 - Screen dimensions
@@ -185,13 +264,13 @@ When a visitor arrives via a referral link and later converts, the affiliate is 
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `JWT_SECRET` | Yes | — | Random hex string for signing auth tokens |
-| `JWT_EXPIRY` | No | `7d` | Auth token expiry duration |
-| `NEXT_PUBLIC_APP_URL` | Yes | — | Public URL of your Traffic Source instance |
-| `DATABASE_PATH` | No | `./data/analytics.db` | Path to SQLite database file |
-| `CRON_SECRET` | No | — | Secret for protecting cron endpoints |
+| Variable              | Required | Default               | Description                                |
+| --------------------- | -------- | --------------------- | ------------------------------------------ |
+| `JWT_SECRET`          | Yes      | —                     | Random hex string for signing auth tokens  |
+| `JWT_EXPIRY`          | No       | `7d`                  | Auth token expiry duration                 |
+| `NEXT_PUBLIC_APP_URL` | Yes      | —                     | Public URL of your Traffic Source instance |
+| `DATABASE_PATH`       | No       | `./data/analytics.db` | Path to SQLite database file               |
+| `CRON_SECRET`         | No       | —                     | Secret for protecting cron endpoints       |
 
 ## Database
 
@@ -205,7 +284,7 @@ cp ./data/analytics.db ./data/analytics-backup-$(date +%Y%m%d).db
 
 ## Project Structure
 
-```
+```text
 ├── public/
 │   └── t.js                    # Tracking script (served to client sites)
 ├── scripts/
